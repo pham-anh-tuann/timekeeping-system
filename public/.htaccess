@@ -1,0 +1,13 @@
+<IfModule mod_rewrite.c>
+    # Bật công cụ viết lại URL
+    RewriteEngine On
+
+    # Nếu cái người dùng gõ KHÔNG PHẢI là một thư mục có thật (!-d)
+    RewriteCond %{REQUEST_FILENAME} !-d
+    
+    # Và KHÔNG PHẢI là một file có thật (!-f) (như ảnh .jpg, file .css)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    
+    # Thì đẩy tất cả yêu cầu về cho file index.php xử lý
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>

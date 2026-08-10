@@ -1,0 +1,10 @@
+{
+    "name": "sme/timekeeping-system",
+    "description": "Hệ thống chấm công tự động cho SME",
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "require": {}
+}
