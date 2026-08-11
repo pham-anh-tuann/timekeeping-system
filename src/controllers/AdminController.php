@@ -108,7 +108,7 @@ class AdminController {
     }
 
     // ==========================================
-    // 3. BÁO CÁO & XUẤT EXCEL
+    // 3. BÁO CÁO & XUẤT EXCEL 
     // ==========================================
     public function reports() {
         AuthMiddleware::checkManager();
@@ -130,20 +130,45 @@ class AdminController {
         
         // Ghi BOM để Excel hiển thị đúng Tiếng Việt
         fputs($output, chr(0xEF).chr(0xBB).chr(0xBF));
+      
+        fputcsv($output, ['Mã NV', 'Họ Tên', 'Ngày Làm', 'Giờ Vào', 'Giờ Ra', 'Hệ Thống', 'Trạng Thái Duyệt'], ';');
         
-        fputcsv($output, ['Mã NV', 'Họ Tên', 'Ngày Làm', 'Giờ Vào', 'Giờ Ra', 'Hệ Thống', 'Trạng Thái Duyệt']);
         foreach ($logs as $row) { 
-            fputcsv($output, [
-                $row['worker_id'], 
-                $row['full_name'], 
-                date('d/m/Y', strtotime($row['work_date'])), 
-                $row['check_in_time'], 
-                $row['check_out_time'] ?? '--:--', 
-                $row['status'] === 'Late' ? 'Đi Muộn' : 'Đúng Giờ', 
-                $row['approval_status'] === 'Pending' ? 'Chờ Duyệt' : ($row['approval_status'] === 'Approved' ? 'Đã Duyệt' : 'Từ Chối')
-            ]); 
+            $safeRow = [
+                $this->sanitizeCsvCell($row['worker_id']), 
+                $this->sanitizeCsvCell($row['full_name']), 
+                $this->sanitizeCsvCell(date('d/m/Y', strtotime($row['work_date']))), 
+                $this->sanitizeCsvCell($row['check_in_time']), 
+                $this->sanitizeCsvCell($row['check_out_time'] ?? '--:--'), 
+                $this->sanitizeCsvCell($row['status'] === 'Late' ? 'Đi Muộn' : 'Đúng Giờ'), 
+                $this->sanitizeCsvCell($row['approval_status'] === 'Pending' ? 'Chờ Duyệt' : ($row['approval_status'] === 'Approved' ? 'Đã Duyệt' : 'Từ Chối'))
+            ];
+            // Đẩy mảng an toàn vào file với dấu chấm phẩy (;)
+            fputcsv($output, $safeRow, ';'); 
         }
         fclose($output); exit;
+    }
+
+    /**
+     * Hàm phụ trợ làm sạch dữ liệu đầu ra để chống CSV Injection (Nguyên tắc OWASP A03).
+     * Ngăn chặn việc nhân viên nhập tên chứa công thức toán học độc hại.
+     */
+    private function sanitizeCsvCell(?string $cellValue): string 
+    {
+        if ($cellValue === null) {
+            return '';
+        }
+
+        // Danh sách các ký tự nguy hiểm trong Excel
+        $dangerousCharacters = ['=', '+', '-', '@', "\t", "\r"];
+        $firstCharacter = substr($cellValue, 0, 1);
+
+        // Nếu bắt đầu bằng ký tự nguy hiểm, chèn thêm dấu nháy đơn (') để Excel hiểu là Text
+        if (in_array($firstCharacter, $dangerousCharacters, true)) {
+            return "'" . $cellValue;
+        }
+
+        return $cellValue;
     }
 
     // ==========================================
