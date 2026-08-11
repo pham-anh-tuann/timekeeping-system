@@ -9,7 +9,7 @@ use App\Middlewares\AuthMiddleware;
 class AttendanceController {
     public function __construct() { 
         AuthMiddleware::check(); 
-        // 1. ÉP MÚI GIỜ VIỆT NAM ĐỂ HÀM DATE() CHẠY CHUẨN XÁC
+        
         date_default_timezone_set('Asia/Ho_Chi_Minh');
     }
 
@@ -28,7 +28,7 @@ class AttendanceController {
         $record = null; $logs = []; $leaves = []; $complaints = [];
 
         if ($userRole !== 'admin') {
-            // FIX CA ĐÊM: Thay vì tìm theo ngày hiện tại, tìm Ca Gần Nhất chưa Check-out HOẶC Ca của ngày hôm nay
+            
             $st1 = $db->prepare("SELECT * FROM attendance_logs 
                                  WHERE user_id = ? AND (check_out_time IS NULL OR work_date = CURDATE()) 
                                  ORDER BY id DESC LIMIT 1");
@@ -58,27 +58,38 @@ class AttendanceController {
         ]);
     }
 
+    /**
+     * Hàm phụ trợ kiểm tra danh sách IP hợp lệ (Chuẩn Clean Code & OWASP A01)
+     */
+    private function isAllowedIp(string $ip): bool {
+        $allowedIps = [
+            '127.0.0.1', 
+            '::1', 
+            '192.168.1.100', 
+            '192.168.1.101',
+            '183.80.156.42' 
+        ];
+        return in_array($ip, $allowedIps, true);
+    }
+
     public function processPunch() {
         $userId = $_SESSION['user']['id'];
         $db = Database::getInstance()->getConnection();
         $action = $_POST['action'] ?? '';
         
-        // ==========================================
-        // TÍNH NĂNG 1: KHÓA IP CHỐNG GIAN LẬN
-        // ==========================================
-        $userIp = $_SERVER['REMOTE_ADDR'];
-        // Khai báo các IP mạng Wi-Fi công ty được phép chấm công. 
-        // (127.0.0.1 và ::1 là IP local khi bro test trên XAMPP)
-        $allowedIps = ['127.0.0.1', '::1', '192.168.1.100', '192.168.1.101']; 
         
-        if (!in_array($userIp, $allowedIps)) {
-            die("<script>alert('Lỗi bảo mật: Bạn phải kết nối mạng Wi-Fi của công ty để chấm công!\\nIP thiết bị của bạn hiện tại là: $userIp'); window.location.href='/timekeeping-system/public/profile';</script>");
+        
+        
+        $userIp = $_SERVER['REMOTE_ADDR'];
+        
+        if (!$this->isAllowedIp($userIp)) {
+            die("<script>alert('Lỗi bảo mật: Bạn phải kết nối mạng Wi-Fi của công ty để chấm công!\\nIP thiết bị của bạn hiện tại là: {$userIp}'); window.location.href='/timekeeping-system/public/profile';</script>");
         }
 
-        // Lấy giờ hiện tại
+        
         $currentTime = date('H:i:s');
 
-        // Lấy thông tin ca làm việc
+        
         $stShift = $db->prepare("SELECT s.start_time, s.end_time, s.late_threshold FROM users u JOIN shifts s ON u.shift_id = s.id WHERE u.id = ?");
         $stShift->execute([$userId]);
         $shift = $stShift->fetch(\PDO::FETCH_ASSOC);
@@ -87,11 +98,11 @@ class AttendanceController {
             die("<script>alert('Lỗi: Bạn chưa được phân ca làm việc!'); window.location.href='/timekeeping-system/public/profile';</script>");
         }
 
-        // ==========================================
-        // TÍNH NĂNG 2: XỬ LÝ CA ĐÊM & CHẶN SỚM 15P
-        // ==========================================
         
-        // Tìm xem có ca nào ĐANG MỞ (Chưa check-out) hay không (Dùng cho Ca đêm)
+        
+        
+        
+        
         $stOpen = $db->prepare("SELECT * FROM attendance_logs WHERE user_id = ? AND check_out_time IS NULL ORDER BY id DESC LIMIT 1");
         $stOpen->execute([$userId]);
         $openLog = $stOpen->fetch(\PDO::FETCH_ASSOC);
@@ -104,7 +115,7 @@ class AttendanceController {
             $startTime = $shift['start_time'];
             $lateThreshold = $shift['late_threshold'];
             
-            // Tính thời gian cho phép vào ca (Sớm 15 phút)
+            
             $allowedInTime = date('H:i:s', strtotime($startTime) - (15 * 60));
 
             if ($currentTime < $allowedInTime) {
@@ -122,14 +133,13 @@ class AttendanceController {
 
             $endTime = $shift['end_time'];
             $allowedOutTime = date('H:i:s', strtotime($endTime) - (15 * 60));
-
-            // Logic chặn ra sớm: Dùng hàm tính khoảng cách giờ để xử lý được cả ca đêm
-            // Nếu current_time < allowedOutTime VÀ (khoảng cách giờ > 1 tiếng - tránh lỗi ca đêm)
+            
+            
             if ($currentTime < $allowedOutTime && strtotime($allowedOutTime) - strtotime($currentTime) > 0 && strtotime($allowedOutTime) - strtotime($currentTime) < 43200) {
                 die("<script>alert('Chưa đến giờ tan ca!\\nĐược phép về sớm nhất lúc: {$allowedOutTime}\\nGiờ hiện tại: {$currentTime}'); window.location.href='/timekeeping-system/public/profile';</script>");
             }
 
-            // Lưu Check-out dựa theo ID log đang mở (Hoàn hảo cho ca đêm xuyên ngày)
+            
             $sql = "UPDATE attendance_logs SET check_out_time = NOW(), approval_status = 'Pending' WHERE id = ?";
             $db->prepare($sql)->execute([$openLog['id']]);
         }
@@ -144,10 +154,10 @@ class AttendanceController {
         $startDate = $_POST['start_date'];
         $endDate = $_POST['end_date'];
 
-        // ==========================================
-        // TÍNH NĂNG 3: CHỐNG TRÙNG LẶP ĐƠN NGHỈ PHÉP
-        // ==========================================
-        // Công thức check Overlap: (Ngày bắt đầu mới <= Ngày kết thúc cũ) VÀ (Ngày kết thúc mới >= Ngày bắt đầu cũ)
+        
+        
+        
+        
         $checkSql = "SELECT COUNT(*) FROM leave_requests 
                      WHERE user_id = ? AND status != 'Rejected'
                      AND (start_date <= ? AND end_date >= ?)";

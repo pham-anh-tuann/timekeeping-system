@@ -8,7 +8,7 @@ class Database {
     private static $instance = null;
     private $conn;
 
-    // Cấu hình Database
+    
     private $host = 'localhost';
     private $db_name = 'timekeeping_db';
     private $username = 'root';
