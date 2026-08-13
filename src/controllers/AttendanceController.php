@@ -77,19 +77,12 @@ class AttendanceController {
         $db = Database::getInstance()->getConnection();
         $action = $_POST['action'] ?? '';
         
-        
-        
-        
         $userIp = $_SERVER['REMOTE_ADDR'];
         
         if (!$this->isAllowedIp($userIp)) {
             die("<script>alert('Lỗi bảo mật: Bạn phải kết nối mạng Wi-Fi của công ty để chấm công!\\nIP thiết bị của bạn hiện tại là: {$userIp}'); window.location.href='/timekeeping-system/public/profile';</script>");
         }
 
-        
-        $currentTime = date('H:i:s');
-
-        
         $stShift = $db->prepare("SELECT s.start_time, s.end_time, s.late_threshold FROM users u JOIN shifts s ON u.shift_id = s.id WHERE u.id = ?");
         $stShift->execute([$userId]);
         $shift = $stShift->fetch(\PDO::FETCH_ASSOC);
@@ -98,31 +91,46 @@ class AttendanceController {
             die("<script>alert('Lỗi: Bạn chưa được phân ca làm việc!'); window.location.href='/timekeeping-system/public/profile';</script>");
         }
 
-        
-        
-        
-        
-        
         $stOpen = $db->prepare("SELECT * FROM attendance_logs WHERE user_id = ? AND check_out_time IS NULL ORDER BY id DESC LIMIT 1");
         $stOpen->execute([$userId]);
         $openLog = $stOpen->fetch(\PDO::FETCH_ASSOC);
+
+        // ==========================================
+        // REFACTOR: XỬ LÝ CA ĐÊM & CHẶN SỚM 15P BẰNG TIMESTAMP
+        // ==========================================
+        $nowStamp = time();
+        $startStamp = strtotime(date('Y-m-d') . ' ' . $shift['start_time']);
+        $endStamp = strtotime(date('Y-m-d') . ' ' . $shift['end_time']);
+        $lateStamp = strtotime(date('Y-m-d') . ' ' . $shift['late_threshold']);
+
+        // XÁC ĐỊNH CA ĐÊM: Nếu giờ bắt đầu lớn hơn giờ kết thúc (VD: 23:00 > 08:00)
+        $isNightShift = $shift['start_time'] > $shift['end_time'];
+
+        if ($isNightShift) {
+            // Nếu hiện tại đang là rạng sáng (VD: 01:00 <= 08:00)
+            if (date('H:i:s') <= $shift['end_time']) {
+                $startStamp = strtotime('-1 day', $startStamp);
+                $lateStamp = strtotime('-1 day', $lateStamp);
+            } else {
+                // Đang là buổi tối (VD: 23:30), ca làm việc sẽ kết thúc vào "Ngày mai"
+                $endStamp = strtotime('+1 day', $endStamp);
+            }
+        }
 
         if ($action === 'check_in') {
             if ($openLog) {
                 die("<script>alert('Lỗi: Bạn chưa Check-out ca làm việc trước đó!'); window.location.href='/timekeeping-system/public/profile';</script>");
             }
 
-            $startTime = $shift['start_time'];
-            $lateThreshold = $shift['late_threshold'];
-            
-            
-            $allowedInTime = date('H:i:s', strtotime($startTime) - (15 * 60));
+            // Cho phép check-in sớm 15 phút (15 * 60 giây)
+            $allowedInStamp = $startStamp - 900; 
 
-            if ($currentTime < $allowedInTime) {
-                die("<script>alert('Chưa đến giờ vào ca!\\nCửa hệ thống mở lúc: {$allowedInTime}\\nGiờ hiện tại: {$currentTime}'); window.location.href='/timekeeping-system/public/profile';</script>");
+            if ($nowStamp < $allowedInStamp) {
+                $allowedTimeStr = date('d/m/Y H:i:s', $allowedInStamp);
+                die("<script>alert('Chưa đến giờ vào ca!\\nCửa hệ thống mở lúc: {$allowedTimeStr}'); window.location.href='/timekeeping-system/public/profile';</script>");
             }
 
-            $status = ($currentTime <= $lateThreshold) ? 'On-time' : 'Late';
+            $status = ($nowStamp <= $lateStamp) ? 'On-time' : 'Late';
             $sql = "INSERT INTO attendance_logs (user_id, work_date, check_in_time, status, approval_status) VALUES (?, CURDATE(), NOW(), ?, 'Pending')";
             $db->prepare($sql)->execute([$userId, $status]);
             
@@ -131,15 +139,15 @@ class AttendanceController {
                 die("<script>alert('Lỗi: Không tìm thấy ca làm việc đang mở!'); window.location.href='/timekeeping-system/public/profile';</script>");
             }
 
-            $endTime = $shift['end_time'];
-            $allowedOutTime = date('H:i:s', strtotime($endTime) - (15 * 60));
-            
-            
-            if ($currentTime < $allowedOutTime && strtotime($allowedOutTime) - strtotime($currentTime) > 0 && strtotime($allowedOutTime) - strtotime($currentTime) < 43200) {
-                die("<script>alert('Chưa đến giờ tan ca!\\nĐược phép về sớm nhất lúc: {$allowedOutTime}\\nGiờ hiện tại: {$currentTime}'); window.location.href='/timekeeping-system/public/profile';</script>");
+            // Cho phép check-out sớm 15 phút (15 * 60 giây)
+            $allowedOutStamp = $endStamp - 900;
+
+            // Logic chặn ra sớm: Chặn nếu quẹt trước giờ cho phép VÀ khoảng cách không quá xa (tránh lỗi lặp ca)
+            if ($nowStamp < $allowedOutStamp && ($allowedOutStamp - $nowStamp) < 43200) {
+                $allowedOutStr = date('d/m/Y H:i:s', $allowedOutStamp);
+                die("<script>alert('Chưa đến giờ tan ca!\\nĐược phép về sớm nhất lúc: {$allowedOutStr}'); window.location.href='/timekeeping-system/public/profile';</script>");
             }
 
-            
             $sql = "UPDATE attendance_logs SET check_out_time = NOW(), approval_status = 'Pending' WHERE id = ?";
             $db->prepare($sql)->execute([$openLog['id']]);
         }
@@ -154,10 +162,6 @@ class AttendanceController {
         $startDate = $_POST['start_date'];
         $endDate = $_POST['end_date'];
 
-        
-        
-        
-        
         $checkSql = "SELECT COUNT(*) FROM leave_requests 
                      WHERE user_id = ? AND status != 'Rejected'
                      AND (start_date <= ? AND end_date >= ?)";

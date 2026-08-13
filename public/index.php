@@ -76,7 +76,10 @@ $router->get('/admin/salary', [AdminController::class, 'salary']);
 $router->get('/admin/settings', [AdminController::class, 'manageShifts']);
 $router->post('/admin/shifts/create', [AdminController::class, 'createShift']); 
 
-
+// 👉 ĐÂY LÀ 3 DÒNG TÔI BỔ SUNG ĐỂ SỬA LỖI 404 (SỬA / CẬP NHẬT / XÓA CA LÀM VIỆC)
+$router->get('/admin/shifts/edit', [AdminController::class, 'showEditShiftForm']);
+$router->post('/admin/shifts/update', [AdminController::class, 'updateShift']);
+$router->get('/admin/shifts/delete', [AdminController::class, 'deleteShift']);
 
 
 $router->get('/profile', [AttendanceController::class, 'showProfile']); 

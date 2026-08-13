@@ -244,7 +244,7 @@ class AdminController {
     }
 
     // ==========================================
-    // 7. KHIẾU NẠI & TỰ ĐỘNG SỬA GIỜ
+    // 7. KHIẾU NẠI & TỰ ĐỘNG SỬA GIỜ (CÓ GHI LOG AUDIT)
     // ==========================================
     public function complaints() {
         AuthMiddleware::checkManager(); 
@@ -257,7 +257,10 @@ class AdminController {
         AuthMiddleware::checkManager(); 
         $id = $_GET['id']; $status = $_GET['status']; 
         $db = Database::getInstance()->getConnection();
-        $stCheck = $db->prepare("SELECT c.user_id, u.role FROM complaints c JOIN users u ON c.user_id = u.id WHERE c.id = ?"); $stCheck->execute([$id]); $cCheck = $stCheck->fetch(\PDO::FETCH_ASSOC);
+        
+        $stCheck = $db->prepare("SELECT c.user_id, u.role FROM complaints c JOIN users u ON c.user_id = u.id WHERE c.id = ?"); 
+        $stCheck->execute([$id]); 
+        $cCheck = $stCheck->fetch(\PDO::FETCH_ASSOC);
 
         // Logic chặn quyền
         if ($cCheck['user_id'] == $_SESSION['user']['id']) die("<script>alert('Lỗi: Không tự duyệt khiếu nại!'); window.history.back();</script>");
@@ -266,17 +269,42 @@ class AdminController {
         if ($status === 'Approved') {
             $db->beginTransaction();
             try {
-                $st = $db->prepare("SELECT user_id, attendance_log_id, suggested_time, suggested_out_time FROM complaints WHERE id = ?"); $st->execute([$id]); $c = $st->fetch(\PDO::FETCH_ASSOC);
-                $db->prepare("UPDATE attendance_logs SET check_in_time = ?, check_out_time = ?, status = 'On-time' WHERE id = ?")->execute([$c['suggested_time'], $c['suggested_out_time'], $c['attendance_log_id']]);
-                $db->prepare("UPDATE complaints SET status = ? WHERE id = ?")->execute([$status, $id]);
+                $st = $db->prepare("SELECT user_id, attendance_log_id, reason, suggested_time, suggested_out_time FROM complaints WHERE id = ?"); 
+                $st->execute([$id]); 
+                $c = $st->fetch(\PDO::FETCH_ASSOC);
+                
+                // Lấy thông tin giờ công CŨ để lưu Audit Trail
+                $stOld = $db->prepare("SELECT check_in_time, check_out_time FROM attendance_logs WHERE id = ?");
+                $stOld->execute([$c['attendance_log_id']]);
+                $oldLog = $stOld->fetch(\PDO::FETCH_ASSOC);
+                
+                $oldData = json_encode(['in' => $oldLog['check_in_time'], 'out' => $oldLog['check_out_time']]);
+                $newData = json_encode(['in' => $c['suggested_time'], 'out' => $c['suggested_out_time']]);
+
+                // 1. Cập nhật giờ công mới vào bảng chấm công
+                $db->prepare("UPDATE attendance_logs SET check_in_time = ?, check_out_time = ?, status = 'On-time' WHERE id = ?")
+                   ->execute([$c['suggested_time'], $c['suggested_out_time'], $c['attendance_log_id']]);
+                
+                // 2. Cập nhật trạng thái đơn khiếu nại
+                $db->prepare("UPDATE complaints SET status = ? WHERE id = ?")
+                   ->execute([$status, $id]);
+                
+                // 3. TÍNH NĂNG MỚI: LƯU VẾT LỊCH SỬ (Audit Trail)
+                $db->prepare("INSERT INTO audit_logs (admin_id, target_log_id, action, old_value, new_value, reason) VALUES (?, ?, 'APPROVE_COMPLAINT', ?, ?, ?)")
+                   ->execute([$_SESSION['user']['id'], $c['attendance_log_id'], $oldData, $newData, $c['reason']]);
+
                 $this->sendNotify($c['user_id'], "✅ Khiếu nại được DUYỆT", "Giờ công đã được sửa.");
                 $db->commit();
-            } catch (\Exception $e) { $db->rollBack(); die("Lỗi: " . $e->getMessage()); }
+            } catch (\Exception $e) { 
+                $db->rollBack(); 
+                die("Lỗi: " . $e->getMessage()); 
+            }
         } else {
             $db->prepare("UPDATE complaints SET status = ? WHERE id = ?")->execute([$status, $id]);
             $this->sendNotify($cCheck['user_id'], "❌ Khiếu nại BỊ TỪ CHỐI", "Yêu cầu không được chấp nhận.");
         }
-        header("Location: /timekeeping-system/public/admin/complaints"); exit;
+        header("Location: /timekeeping-system/public/admin/complaints"); 
+        exit;
     }
 
     // ==========================================
@@ -315,7 +343,7 @@ class AdminController {
     }
 
     // ==========================================
-    // 9. CẤU HÌNH CA & SETTINGS
+    // 9. CẤU HÌNH CA & SETTINGS (ĐÃ THÊM SỬA/XÓA)
     // ==========================================
     public function manageShifts() {
         AuthMiddleware::checkAdmin();
@@ -329,5 +357,46 @@ class AdminController {
         $db = Database::getInstance()->getConnection();
         $db->prepare("INSERT INTO shifts (shift_name, start_time, end_time, late_threshold) VALUES (?, ?, ?, ?)")->execute([$_POST['shift_name'], $_POST['start_time'], $_POST['end_time'], $_POST['late_threshold']]);
         header("Location: /timekeeping-system/public/admin/settings"); exit;
+    }
+
+    public function showEditShiftForm() {
+        AuthMiddleware::checkAdmin();
+        $db = Database::getInstance()->getConnection();
+        $st = $db->prepare("SELECT * FROM shifts WHERE id = ?");
+        $st->execute([$_GET['id']]);
+        $shift = $st->fetch(\PDO::FETCH_ASSOC);
+        
+        View::render('admin/edit_shift', ['title' => 'Sửa Ca', 'user' => $_SESSION['user'], 'shift' => $shift]);
+    }
+
+    public function updateShift() {
+        AuthMiddleware::checkAdmin();
+        $db = Database::getInstance()->getConnection();
+        $sql = "UPDATE shifts SET shift_name = ?, start_time = ?, end_time = ?, late_threshold = ? WHERE id = ?";
+        $db->prepare($sql)->execute([
+            $_POST['shift_name'], 
+            $_POST['start_time'], 
+            $_POST['end_time'], 
+            $_POST['late_threshold'], 
+            $_POST['id']
+        ]);
+        header("Location: /timekeeping-system/public/admin/settings"); 
+        exit;
+    }
+
+    public function deleteShift() {
+        AuthMiddleware::checkAdmin();
+        $db = Database::getInstance()->getConnection();
+        
+        // Cảnh báo an toàn: Kiểm tra ràng buộc dữ liệu trước khi xóa
+        $stCheck = $db->prepare("SELECT COUNT(*) FROM users WHERE shift_id = ?");
+        $stCheck->execute([$_GET['id']]);
+        if ($stCheck->fetchColumn() > 0) {
+            die("<script>alert('Lỗi: Không thể xóa! Đang có nhân viên được phân vào ca này.'); window.history.back();</script>");
+        }
+
+        $db->prepare("DELETE FROM shifts WHERE id = ?")->execute([$_GET['id']]);
+        header("Location: /timekeeping-system/public/admin/settings"); 
+        exit;
     }
 }

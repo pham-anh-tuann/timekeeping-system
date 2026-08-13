@@ -45,6 +45,13 @@
         
         .time-badge { background: #f1f5f9; padding: 6px 12px; border-radius: 8px; color: #0f172a; font-size: 13px; font-weight: 700; display: inline-flex; align-items:center; gap: 6px;}
         .topbar-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary); padding: 2px; }
+        
+        /* Bổ sung CSS cho nút Sửa/Xóa chuẩn thiết kế */
+        .btn-sm { padding: 6px 12px; border-radius: 6px; font-size: 12px; border: none; cursor: pointer; text-decoration: none; font-weight: 600; transition: 0.2s; display: inline-block; margin-right: 5px; }
+        .btn-warning { background: var(--warning); color: #fff; }
+        .btn-warning:hover { background: #d97706; }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-danger:hover { background: #dc2626; }
     </style>
 </head>
 <body>
@@ -126,19 +133,36 @@
             <h3 style="color: #0f172a; margin-top:0; font-size: 18px; font-weight: 800;"><i class="fa-solid fa-list-check" style="color: var(--primary-dark);"></i> Danh sách thiết lập</h3>
             <table id="shiftTable">
                 <thead>
-                    <tr><th>ID Ca</th><th>Tên Ca Làm Việc</th><th>Giờ Bắt Đầu</th><th>Giờ Kết Thúc</th><th>Mốc Tính Đi Muộn</th></tr>
+                    <tr>
+                        <th>ID Ca</th>
+                        <th>Tên Ca Làm Việc</th>
+                        <th>Giờ Bắt Đầu</th>
+                        <th>Giờ Kết Thúc</th>
+                        <th>Mốc Tính Đi Muộn</th>
+                        <!-- BỔ SUNG CỘT THAO TÁC -->
+                        <th>Thao Tác</th> 
+                    </tr>
                 </thead>
                 <tbody>
                     <?php foreach($shifts ?? [] as $s): ?>
                     <tr class="shift-row">
                         <td style="font-weight:800; color: #94a3b8;">#<?= $s['id'] ?></td>
+                        <!-- OWASP A03: htmlspecialchars để phòng chống XSS -->
                         <td class="col-name"><strong style="color: #0f172a; font-size: 15px;"><?= htmlspecialchars($s['shift_name']) ?></strong></td>
                         <td><span class="time-badge"><i class="fa-regular fa-clock" style="color: #64748b;"></i> <?= substr($s['start_time'], 0, 5) ?></span></td>
                         <td><span class="time-badge"><i class="fa-solid fa-door-open" style="color: #64748b;"></i> <?= substr($s['end_time'], 0, 5) ?></span></td>
                         <td><span style="color: var(--danger); font-weight: 700; font-size: 13px; background: #fee2e2; padding: 4px 10px; border-radius: 6px;"><i class="fa-solid fa-triangle-exclamation"></i> <?= substr($s['late_threshold'], 0, 5) ?></span></td>
+                        
+                        <!-- BỔ SUNG 2 NÚT SỬA/XÓA -->
+                        <td>
+                            <a href="/timekeeping-system/public/admin/shifts/edit?id=<?= $s['id'] ?>" class="btn-sm btn-warning"><i class="fa-solid fa-pen"></i> Sửa</a>
+                            <!-- Cảnh báo xác nhận trước khi xóa để chống thao tác nhầm -->
+                            <a href="/timekeeping-system/public/admin/shifts/delete?id=<?= $s['id'] ?>" class="btn-sm btn-danger" onclick="return confirm('Bạn có chắc chắn muốn xóa ca này không? Việc này có thể ảnh hưởng đến nhân viên đang được gán vào ca.');"><i class="fa-solid fa-trash"></i> Xóa</a>
+                        </td>
                     </tr>
                     <?php endforeach; ?>
-                    <tr id="noShiftRow" style="display:none;"><td colspan="5" style="text-align:center; padding: 30px; color: #94a3b8;">Không tìm thấy ca làm việc!</td></tr>
+                    <!-- Thay đổi colspan từ 5 thành 6 để khớp với việc thêm cột Thao tác -->
+                    <tr id="noShiftRow" style="display:none;"><td colspan="6" style="text-align:center; padding: 30px; color: #94a3b8;">Không tìm thấy ca làm việc!</td></tr>
                 </tbody>
             </table>
         </div>
@@ -162,6 +186,7 @@ function filterShifts() {
             row.style.display = "none";
         }
     }
+    // Hiển thị dòng thông báo khi không tìm thấy kết quả
     document.getElementById("noShiftRow").style.display = (visibleCount === 0) ? "" : "none";
 }
 </script>
