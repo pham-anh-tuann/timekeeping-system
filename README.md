@@ -6,7 +6,7 @@
 **Công nghệ sử dụng (Tech Stack):**
 *   **Backend:** Pure PHP (MVC Architecture)
 *   **Database:** MySQL (Relational Database)
-*   **Frontend:** HTML5, CSS3, Vanilla JavaScript
+*   **Frontend:** HTML, CSS, Vanilla JavaScript
 
 ## 2. BIỂU ĐỒ KIẾN TRÚC HỆ THỐNG (ARCHITECTURE DIAGRAM)
 
